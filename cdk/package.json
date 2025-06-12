@@ -1,0 +1,33 @@
+{
+  "name": "sample-micro-service",
+  "version": "0.1.0",
+  "bin": {
+    "app": "bin/app.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc -w",
+    "pretest": "pip install -r test/test-requirements.txt",
+    "test": "jest",
+    "cdk": "cdk"
+  },
+  "dependencies": {
+    "@aws-cdk/toolkit-lib": "^1.1.0",
+    "@aws-sdk/client-fis": "^3.825.0",
+    "@types/jest": "^29.5.14",
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "22.7.9",
+    "@types/uuid": "^10.0.0",
+    "aws-cdk": "2.1018.0",
+    "aws-cdk-lib": "^2.130.0",
+    "constructs": "^10.3.0",
+    "jest": "^29.7.0",
+    "js-yaml": "^4.1.0",
+    "ts-jest": "^29.2.5",
+    "uuid": "^11.1.0"
+  },
+  "devDependencies": {
+    "ts-node": "^10.9.1",
+    "typescript": "~5.2.2"
+  }
+}
