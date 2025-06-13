@@ -1,0 +1,49 @@
+name: Revert Simple Python Service
+
+on:
+  workflow_dispatch:
+    inputs:
+      commit_sha:
+        description: 'Commit SHA to revert'
+        required: true
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  revert:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        token: ${{ secrets.GITHUB_TOKEN }}
+        
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+        aws-region: us-west-2
+        
+    - name: Revert commit
+      run: |
+        git config --local user.email "cloudsmith-agent@company.com"
+        git config --local user.name "CloudSmith Agent"
+        git revert ${{ github.event.inputs.commit_sha }} --no-edit
+        git push origin main
+        
+    - name: Install CDK dependencies
+      run: |
+        cd cdk
+        npm install
+        
+    - name: Build CDK
+      run: |
+        cd cdk
+        npm run build
+        
+    - name: Deploy reverted code
+      run: |
+        cd cdk
+        npx cdk deploy --all --require-approval never

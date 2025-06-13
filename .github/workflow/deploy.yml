@@ -1,0 +1,41 @@
+name: Deploy Simple Python Service
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+        aws-region: us-west-2
+        
+    - name: Install CDK dependencies
+      run: |
+        cd cdk
+        npm install
+        
+    - name: Build CDK
+      run: |
+        cd cdk
+        npm run build
+        
+    - name: Deploy CDK
+      run: |
+        cd cdk
+        npx cdk deploy --all --require-approval never
