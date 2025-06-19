@@ -1,27 +1,25 @@
 import boto3
 import os
 import time
-from fastapi import FastAPI, HTTPException, Request
-from model import Item
-from ddb_client import write_to_dynamodb, read_from_dynamodb
+from datetime import datetime
+from fastapi import FastAPI, HTTPException, Request, Query
+from typing import List, Optional
+from model import Payment, Customer
+from ddb_client import (
+    store_payment, 
+    get_customer, 
+    store_customer, 
+    get_payment_history,
+)
 
-# User Analytics Storage (this will cause memory leaks!)
-user_analytics_data = []
-request_analytics = {}
-
-# User Analytics Storage (this will cause memory leaks!)
-user_analytics_data = []
-request_analytics = {}
-
-# User Analytics Storage (this will cause memory leaks!)
-user_analytics_data = []
-request_analytics = {}
-
-app = FastAPI()
+app = FastAPI(
+    title="Payment Processing Service",
+    description="A microservice for processing payments and managing customer data",
+    version="1.0.0"
+)
 
 # Initialize CloudWatch client
 cloudwatch = boto3.client('cloudwatch', region_name=os.environ.get("AWS_REGION", "us-west-2"))
-memory_hog = []
 
 @app.middleware("http")
 async def add_process_time_header(request: Request, call_next):
@@ -33,17 +31,17 @@ async def add_process_time_header(request: Request, call_next):
     response.headers["X-Process-Time"] = str(process_time)
     
     # Only publish metrics for specific endpoints we want to monitor
-    if request.url.path == "/write":
+    if request.url.path.startswith("/payments/process"):
         try:
             cloudwatch.put_metric_data(
-                Namespace='SampleMicroServiceApplication',
+                Namespace='PaymentServiceApplication',
                 MetricData=[
                     {
                         'MetricName': 'APILatency',
                         'Dimensions': [
                             {
                                 'Name': 'Service',
-                                'Value': 'WriteAPI'
+                                'Value': 'PaymentProcessingAPI'
                             }
                         ],
                         'Value': process_time * 1000,  # Convert to milliseconds
@@ -59,120 +57,45 @@ async def add_process_time_header(request: Request, call_next):
 
 @app.get("/")
 def root():
-    return {"message": "Home!"}
+    return {
+        "service": "Payment Processing API",
+        "status": "operational",
+        "version": "1.0.0",
+        "endpoints": [
+            "/payments/process",
+            "/customers/{customer_id}",
+            "/payments/history/{customer_id}",
+            "/customers/create"
+        ]
+    }
 
-@app.post("/write")
-def write_item(item: Item):    
-    # 🔥 ANALYTICS FEATURE - This will cause OOM! 🔥
-    global user_analytics_data, request_analytics
+@app.post("/payments/process")
+def process_payment(payment: Payment):
+    # Set timestamp if not provided
+    if not payment.timestamp:
+        payment.timestamp = datetime.utcnow()
     
-    # Create massive analytics objects that never get cleaned up
-    analytics_entry = {
-        'user_id': item.user_id,
-        'timestamp': time.time(),
-        'request_data': item.value,
-        # Memory leak: Create large objects that accumulate
-        'user_history': [item.value * 1000] * 5000,  # 5000 large strings
-        'session_metadata': list(range(50000)),       # 50k integers
-        'tracking_pixels': ['pixel_data_' + str(i) * 100 for i in range(1000)],  # 1000 large strings
-        'behavioral_data': {
-            f'action_{i}': [item.user_id] * 100 for i in range(100)  # Nested memory waste
-        }
-    }
-    
-    # Store in global list (never cleaned up = memory leak!)
-    user_analytics_data.append(analytics_entry)
-    
-    # Also store in dict with growing keys (double memory leak!)
-    request_key = f"{item.user_id}_{time.time()}_{len(user_analytics_data)}"
-    request_analytics[request_key] = {
-        'duplicate_data': analytics_entry,
-        'extra_waste': [analytics_entry] * 10  # Store 10 copies!
-    }
-    
-    # Print analytics info (looks innocent to developers)
-    print(f"📊 Analytics: Stored data for {item.user_id}, total entries: {len(user_analytics_data)}")
-    print(f"📈 Memory usage growing: {len(request_analytics)} request records")
-    
-    # 🔥 ANALYTICS FEATURE - This will cause OOM! 🔥
-    global user_analytics_data, request_analytics
-    
-    # Create massive analytics objects that never get cleaned up
-    analytics_entry = {
-        'user_id': item.user_id,
-        'timestamp': time.time(),
-        'request_data': item.value,
-        # Memory leak: Create large objects that accumulate
-        'user_history': [item.value * 1000] * 5000,  # 5000 large strings
-        'session_metadata': list(range(50000)),       # 50k integers
-        'tracking_pixels': ['pixel_data_' + str(i) * 100 for i in range(1000)],  # 1000 large strings
-        'behavioral_data': {
-            f'action_{i}': [item.user_id] * 100 for i in range(100)  # Nested memory waste
-        }
-    }
-    
-    # Store in global list (never cleaned up = memory leak!)
-    user_analytics_data.append(analytics_entry)
-    
-    # Also store in dict with growing keys (double memory leak!)
-    request_key = f"{item.user_id}_{time.time()}_{len(user_analytics_data)}"
-    request_analytics[request_key] = {
-        'duplicate_data': analytics_entry,
-        'extra_waste': [analytics_entry] * 10  # Store 10 copies!
-    }
-    
-    # Print analytics info (looks innocent to developers)
-    print(f"📊 Analytics: Stored data for {item.user_id}, total entries: {len(user_analytics_data)}")
-    print(f"📈 Memory usage growing: {len(request_analytics)} request records")
-    
-    # 🔥 ANALYTICS FEATURE - This will cause OOM! 🔥
-    global user_analytics_data, request_analytics
-    
-    # Create massive analytics objects that never get cleaned up
-    analytics_entry = {
-        'user_id': item.user_id,
-        'timestamp': time.time(),
-        'request_data': item.value,
-        # Memory leak: Create large objects that accumulate
-        'user_history': [item.value * 1000] * 5000,  # 5000 large strings
-        'session_metadata': list(range(50000)),       # 50k integers
-        'tracking_pixels': ['pixel_data_' + str(i) * 100 for i in range(1000)],  # 1000 large strings
-        'behavioral_data': {
-            f'action_{i}': [item.user_id] * 100 for i in range(100)  # Nested memory waste
-        }
-    }
-    
-    # Store in global list (never cleaned up = memory leak!)
-    user_analytics_data.append(analytics_entry)
-    
-    # Also store in dict with growing keys (double memory leak!)
-    request_key = f"{item.user_id}_{time.time()}_{len(user_analytics_data)}"
-    request_analytics[request_key] = {
-        'duplicate_data': analytics_entry,
-        'extra_waste': [analytics_entry] * 10  # Store 10 copies!
-    }
-    
-    # Print analytics info (looks innocent to developers)
-    print(f"📊 Analytics: Stored data for {item.user_id}, total entries: {len(user_analytics_data)}")
-    print(f"📈 Memory usage growing: {len(request_analytics)} request records")
-    
-    memory_hog.append([0] * (10 * 1024 * 1024 // 8))
     # Measure DynamoDB operation time specifically
     ddb_start_time = time.time()
-    success = write_to_dynamodb(item.user_id, item.value)
+    success = store_payment(
+        payment.customer_id, 
+        payment.amount, 
+        payment.payment_method,
+        payment.transaction_id
+    )
     ddb_time = time.time() - ddb_start_time
     
     # Publish DynamoDB operation time as a separate metric
     try:
         cloudwatch.put_metric_data(
-            Namespace='SampleMicroServiceApplication',
+            Namespace='PaymentServiceApplication',
             MetricData=[
                 {
                     'MetricName': 'DynamoDBOperationTime',
                     'Dimensions': [
                         {
                             'Name': 'Operation',
-                            'Value': 'PutItem'
+                            'Value': 'ProcessPayment'
                         }
                     ],
                     'Value': ddb_time * 1000,  # Convert to milliseconds
@@ -184,79 +107,43 @@ def write_item(item: Item):
         print(f"Failed to publish DynamoDB metric: {str(e)}")
     
     if not success:
-        print(f"DynamoDB write failed for {item.user_id} after {ddb_time:.4f}s")
-        raise HTTPException(status_code=500, detail="Failed to write to DynamoDB")
+        print(f"Payment processing failed for {payment.customer_id} after {ddb_time:.4f}s")
+        raise HTTPException(status_code=500, detail="Failed to process payment")
     
-    print(f"DynamoDB write successful for {item.user_id} in {ddb_time:.4f}s")
-    return {"message": "Write successful", "dynamodb_time_ms": ddb_time * 1000}
-
-
-
-@app.get("/analytics")
-def get_analytics():
-    """Analytics endpoint - shows current memory usage (disguised as analytics)"""
-    global user_analytics_data, request_analytics
-    
-    # Create even more memory waste when someone checks analytics!
-    temp_analysis = []
-    for entry in user_analytics_data:
-        # Create temporary copies (more memory waste)
-        temp_analysis.extend([entry] * 5)
-    
+    print(f"Payment processed successfully for {payment.customer_id} in {ddb_time:.4f}s")
     return {
-        "message": "User Analytics Dashboard",
-        "total_users_tracked": len(user_analytics_data),
-        "total_requests_analyzed": len(request_analytics),
-        "memory_objects_created": len(temp_analysis),
-        "status": "growing_rapidly",
-        "note": "Analytics data is accumulating for better insights!"
+        "message": "Payment processed successfully", 
+        "transaction_id": payment.transaction_id,
+        "processing_time_ms": ddb_time * 1000
     }
 
-
-@app.get("/analytics")
-def get_analytics():
-    """Analytics endpoint - shows current memory usage (disguised as analytics)"""
-    global user_analytics_data, request_analytics
+@app.post("/customers/create")
+def create_customer(customer: Customer):
+    success = store_customer(
+        customer.customer_id,
+        customer.name,
+        customer.email,
+        customer.account_status
+    )
     
-    # Create even more memory waste when someone checks analytics!
-    temp_analysis = []
-    for entry in user_analytics_data:
-        # Create temporary copies (more memory waste)
-        temp_analysis.extend([entry] * 5)
-    
-    return {
-        "message": "User Analytics Dashboard",
-        "total_users_tracked": len(user_analytics_data),
-        "total_requests_analyzed": len(request_analytics),
-        "memory_objects_created": len(temp_analysis),
-        "status": "growing_rapidly",
-        "note": "Analytics data is accumulating for better insights!"
-    }
-
-
-@app.get("/analytics")
-def get_analytics():
-    """Analytics endpoint - shows current memory usage (disguised as analytics)"""
-    global user_analytics_data, request_analytics
-    
-    # Create even more memory waste when someone checks analytics!
-    temp_analysis = []
-    for entry in user_analytics_data:
-        # Create temporary copies (more memory waste)
-        temp_analysis.extend([entry] * 5)
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to create customer record")
     
     return {
-        "message": "User Analytics Dashboard",
-        "total_users_tracked": len(user_analytics_data),
-        "total_requests_analyzed": len(request_analytics),
-        "memory_objects_created": len(temp_analysis),
-        "status": "growing_rapidly",
-        "note": "Analytics data is accumulating for better insights!"
+        "message": "Customer created successfully",
+        "customer_id": customer.customer_id
     }
 
-@app.get("/read/{user_id}")
-def read_item(user_id: str):
-    result = read_from_dynamodb(user_id)
+@app.get("/customers/{customer_id}")
+def get_customer_info(customer_id: str):
+    result = get_customer(customer_id)
     if "error" in result:
         raise HTTPException(status_code=404, detail=result["error"])
+    return result
+
+@app.get("/payments/history/{customer_id}")
+def get_payments(customer_id: str, limit: Optional[int] = Query(10, ge=1, le=100)):
+    result = get_payment_history(customer_id, limit)
+    if result and "error" in result[0]:
+        raise HTTPException(status_code=500, detail=result[0]["error"])
     return result
