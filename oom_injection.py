@@ -21,38 +21,48 @@ def inject_oom_code():
     
     print("📖 Reading current main.py...")
     
-    # 1. Add global variable for analytics data after imports
+    # 1. Add global variable for user analytics data after imports
     analytics_import = """
 # User Analytics Storage (this will cause memory leaks!)
 user_analytics_data = []
 request_analytics = {}
 """
     
-    # Insert after the existing imports
-    import_pattern = r'(from ddb_client import write_to_dynamodb, read_from_dynamodb\n)'
-    if re.search(import_pattern, content):
-        content = re.sub(import_pattern, r'\1' + analytics_import, content)
-        print("✅ Added analytics imports and global variables")
+    # Insert after the imports section
+    import_pattern = r'(from ddb_client import \(.*?\n\))'
+    if re.search(import_pattern, content, re.DOTALL):
+        content = re.sub(import_pattern, r'\1' + analytics_import, content, flags=re.DOTALL)
+        print("✅ Added payment analytics imports and global variables")
     else:
-        print("⚠️  Could not find import section, adding at the beginning")
-        content = analytics_import + "\n" + content
+        # Alternative pattern
+        alt_import_pattern = r'(from.*?import.*?\n)'
+        last_import = list(re.finditer(alt_import_pattern, content))
+        if last_import:
+            last_match = last_import[-1]
+            content = content[:last_match.end()] + analytics_import + content[last_match.end():]
+            print("✅ Added payment analytics imports and global variables (alternative method)")
+        else:
+            print("⚠️ Could not find import section, adding at the beginning")
+            content = analytics_import + "\n" + content
     
-    # 2. Inject memory leak code in the write_item function
-    memory_leak_code = """    
-    # 🔥 ANALYTICS FEATURE - This will cause OOM! 🔥
+    # 2. Inject memory leak code in the process_payment function
+    memory_leak_code = """
+    # 🔥 PAYMENT ANALYTICS FEATURE - This will cause OOM! 🔥
     global user_analytics_data, request_analytics
     
-    # Create massive analytics objects that never get cleaned up
+    # Create massive payment analytics objects that never get cleaned up
     analytics_entry = {
-        'user_id': item.user_id,
+        'customer_id': payment.customer_id,
+        'transaction_id': payment.transaction_id,
+        'amount': payment.amount,
         'timestamp': time.time(),
-        'request_data': item.value,
+        'payment_method': payment.payment_method,
         # Memory leak: Create large objects that accumulate
-        'user_history': [item.value * 1000] * 5000,  # 5000 large strings
-        'session_metadata': list(range(50000)),       # 50k integers
-        'tracking_pixels': ['pixel_data_' + str(i) * 100 for i in range(1000)],  # 1000 large strings
-        'behavioral_data': {
-            f'action_{i}': [item.user_id] * 100 for i in range(100)  # Nested memory waste
+        'customer_history': [str(payment.amount) * 1000] * 5000,  # 5000 large strings
+        'transaction_metadata': list(range(50000)),       # 50k integers
+        'fraud_analysis': ['fraud_check_' + str(i) * 100 for i in range(1000)],  # 1000 large strings
+        'payment_patterns': {
+            f'pattern_{i}': [payment.customer_id] * 100 for i in range(100)  # Nested memory waste
         }
     }
     
@@ -60,37 +70,57 @@ request_analytics = {}
     user_analytics_data.append(analytics_entry)
     
     # Also store in dict with growing keys (double memory leak!)
-    request_key = f"{item.user_id}_{time.time()}_{len(user_analytics_data)}"
+    request_key = f"{payment.customer_id}_{payment.transaction_id}_{time.time()}_{len(user_analytics_data)}"
     request_analytics[request_key] = {
         'duplicate_data': analytics_entry,
         'extra_waste': [analytics_entry] * 10  # Store 10 copies!
     }
     
     # Print analytics info (looks innocent to developers)
-    print(f"📊 Analytics: Stored data for {item.user_id}, total entries: {len(user_analytics_data)}")
-    print(f"📈 Memory usage growing: {len(request_analytics)} request records")
+    print(f"📊 Payment Analytics: Stored data for {payment.customer_id}, total entries: {len(user_analytics_data)}")
+    print(f"📈 Memory usage growing: {len(request_analytics)} transaction records")
 """
     
-    # Find the write_item function and inject before DynamoDB operation
-    write_function_pattern = r'(@app\.post\("/write"\)\ndef write_item\(item: Item\):\n    # Measure DynamoDB operation time specifically\n    ddb_start_time = time\.time\(\))'
+    # Find the process_payment function and inject at the beginning of the function body
+    payment_function_pattern = r'(@app\.post\("/payments/process"\)\ndef process_payment\(payment: Payment\):)'
     
-    if re.search(write_function_pattern, content):
-        content = re.sub(write_function_pattern, 
-                        r'@app.post("/write")\ndef write_item(item: Item):' + memory_leak_code + r'\n    # Measure DynamoDB operation time specifically\n    ddb_start_time = time.time()', 
-                        content)
-        print("✅ Injected memory leak code into write_item function")
-    else:
-        print("⚠️  Could not find exact write_item pattern, trying alternative...")
-        # Alternative pattern matching
-        alt_pattern = r'(def write_item\(item: Item\):)'
-        if re.search(alt_pattern, content):
-            content = re.sub(alt_pattern, r'\1' + memory_leak_code, content)
-            print("✅ Injected memory leak code using alternative pattern")
+    if re.search(payment_function_pattern, content):
+        # Find where to insert the code (after the first line with indentation)
+        match = re.search(payment_function_pattern, content)
+        function_start = match.end()
+        
+        # Find the first indented line
+        next_line_match = re.search(r'\n\s+', content[function_start:])
+        if next_line_match:
+            insert_pos = function_start + next_line_match.start() + next_line_match.end() - 1
+            content = content[:insert_pos] + memory_leak_code + content[insert_pos:]
+            print("✅ Injected memory leak code into process_payment function")
         else:
-            print("❌ Could not find write_item function to inject code!")
+            print("⚠️ Could not find indentation in process_payment function")
+            return False
+    else:
+        print("⚠️ Could not find exact process_payment pattern, trying alternative...")
+        # Alternative pattern matching
+        alt_pattern = r'(def process_payment\(payment: Payment\):)'
+        if re.search(alt_pattern, content):
+            # Find where to insert the code (after the first line with indentation)
+            match = re.search(alt_pattern, content)
+            function_start = match.end()
+            
+            # Find the first indented line
+            next_line_match = re.search(r'\n\s+', content[function_start:])
+            if next_line_match:
+                insert_pos = function_start + next_line_match.start() + next_line_match.end() - 1
+                content = content[:insert_pos] + memory_leak_code + content[insert_pos:]
+                print("✅ Injected memory leak code using alternative pattern")
+            else:
+                print("⚠️ Could not find indentation in process_payment function")
+                return False
+        else:
+            print("❌ Could not find process_payment function to inject code!")
             return False
     
-    # 3. Add a new endpoint that shows "analytics" (but actually shows memory usage)
+    # 3. Add a new endpoint that shows "payment analytics" (but actually shows memory usage)
     analytics_endpoint = """
 @app.get("/analytics")
 def get_analytics():
@@ -104,19 +134,29 @@ def get_analytics():
         temp_analysis.extend([entry] * 5)
     
     return {
-        "message": "User Analytics Dashboard",
-        "total_users_tracked": len(user_analytics_data),
-        "total_requests_analyzed": len(request_analytics),
+        "message": "Analytics Dashboard",
+        "total_customers_tracked": len(user_analytics_data),
+        "total_transactions_analyzed": len(request_analytics),
         "memory_objects_created": len(temp_analysis),
         "status": "growing_rapidly",
-        "note": "Analytics data is accumulating for better insights!"
+        "note": "Analytics data is accumulating for better fraud detection!"
     }
 """
     
-    # Add the analytics endpoint before the read endpoint
-    read_pattern = r'(@app\.get\("/read/\{user_id\}"\))'
-    content = re.sub(read_pattern, analytics_endpoint + r'\n\1', content)
-    print("✅ Added analytics endpoint")
+    # Add the analytics endpoint before the customers endpoint
+    customers_pattern = r'(@app\.post\("/customers/create"\))'
+    if re.search(customers_pattern, content):
+        content = re.sub(customers_pattern, analytics_endpoint + r'\n\n' + r'\1', content)
+        print("✅ Added payment analytics endpoint")
+    else:
+        # Alternative: add after the root endpoint
+        root_pattern = r'(@app\.get\("/".*?\n\})'
+        if re.search(root_pattern, content, re.DOTALL):
+            content = re.sub(root_pattern, r'\1' + '\n\n' + analytics_endpoint, content, flags=re.DOTALL)
+            print("✅ Added payment analytics endpoint (alternative location)")
+        else:
+            print("⚠️ Could not find suitable location for analytics endpoint")
+            return False
     
     # 4. Write the modified content back
     with open(main_py_path, 'w') as f:
@@ -124,11 +164,11 @@ def get_analytics():
     
     print("🎯 OOM injection complete!")
     print("📝 Changes made:")
-    print("   - Added global analytics storage variables")
-    print("   - Injected memory leak in /write endpoint")
-    print("   - Added /analytics endpoint")
-    print("   - Memory will grow ~50MB per request to /write")
-    print("   - Container will OOM after ~10-20 requests")
+    print("   - Added global user analytics storage variables")
+    print("   - Injected memory leak in /payments/process endpoint")
+    print("   - Added /payment-analytics endpoint")
+    print("   - Memory will grow ~50MB per payment request")
+    print("   - Container will OOM after ~10-20 payment transactions")
     
     return True
 
@@ -137,14 +177,14 @@ def show_injection_summary():
     print("🔥 OOM INJECTION SUMMARY")
     print("="*60)
     print("What was injected:")
-    print("1. Global variables that accumulate data")
-    print("2. Memory leak in /write endpoint (~50MB per request)")
-    print("3. New /analytics endpoint to monitor 'analytics'")
+    print("1. Global variables that accumulate payment data")
+    print("2. Memory leak in /payments/process endpoint (~50MB per payment)")
+    print("3. New /payment-analytics endpoint to monitor 'payment analytics'")
     print("4. No cleanup code - memory grows indefinitely")
     print("\nExpected behavior:")
-    print("- Each /write request will consume ~50MB RAM")
-    print("- With 512MB container limit, OOM after ~10 requests")
-    print("- ECS will restart container, causing service disruption")
+    print("- Each payment request will consume ~50MB RAM")
+    print("- With 512MB container limit, OOM after ~10 payments")
+    print("- ECS will restart container, causing payment service disruption")
     print("- Load balancer health checks will fail")
     print("="*60)
 
@@ -153,7 +193,7 @@ if __name__ == "__main__":
     
     if inject_oom_code():
         show_injection_summary()
-        print("\n✅ Ready to commit this 'analytics feature' to trigger OOM!")
+        print("\n✅ Ready to commit this 'payment analytics feature' to trigger OOM!")
     else:
         print("\n❌ OOM injection failed!")
         exit(1)
