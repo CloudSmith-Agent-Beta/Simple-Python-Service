@@ -11,10 +11,6 @@ from ddb_client import (
     store_customer, 
     get_payment_history,
 )
-# User Analytics Storage (this will cause memory leaks!)
-user_analytics_data = []
-request_analytics = {}
-
 
 app = FastAPI(
     title="Payment Processing Service",
@@ -75,40 +71,7 @@ def root():
 
 @app.post("/payments/process")
 def process_payment(payment: Payment):
-   
-    # 🔥 PAYMENT ANALYTICS FEATURE - This will cause OOM! 🔥
-    global user_analytics_data, request_analytics
-    
-    # Create massive payment analytics objects that never get cleaned up
-    analytics_entry = {
-        'customer_id': payment.customer_id,
-        'transaction_id': payment.transaction_id,
-        'amount': payment.amount,
-        'timestamp': time.time(),
-        'payment_method': payment.payment_method,
-        # Memory leak: Create large objects that accumulate
-        'customer_history': [str(payment.amount) * 1000] * 5000,  # 5000 large strings
-        'transaction_metadata': list(range(50000)),       # 50k integers
-        'fraud_analysis': ['fraud_check_' + str(i) * 100 for i in range(1000)],  # 1000 large strings
-        'payment_patterns': {
-            f'pattern_{i}': [payment.customer_id] * 100 for i in range(100)  # Nested memory waste
-        }
-    }
-    
-    # Store in global list (never cleaned up = memory leak!)
-    user_analytics_data.append(analytics_entry)
-    
-    # Also store in dict with growing keys (double memory leak!)
-    request_key = f"{payment.customer_id}_{payment.transaction_id}_{time.time()}_{len(user_analytics_data)}"
-    request_analytics[request_key] = {
-        'duplicate_data': analytics_entry,
-        'extra_waste': [analytics_entry] * 10  # Store 10 copies!
-    }
-    
-    # Print analytics info (looks innocent to developers)
-    print(f"📊 Payment Analytics: Stored data for {payment.customer_id}, total entries: {len(user_analytics_data)}")
-    print(f"📈 Memory usage growing: {len(request_analytics)} transaction records")
- # Set timestamp if not provided
+    # Set timestamp if not provided
     if not payment.timestamp:
         payment.timestamp = datetime.utcnow()
     
@@ -153,28 +116,6 @@ def process_payment(payment: Payment):
         "transaction_id": payment.transaction_id,
         "processing_time_ms": ddb_time * 1000
     }
-
-
-@app.get("/analytics")
-def get_analytics():
-    """Analytics endpoint - shows current memory usage (disguised as analytics)"""
-    global user_analytics_data, request_analytics
-    
-    # Create even more memory waste when someone checks analytics!
-    temp_analysis = []
-    for entry in user_analytics_data:
-        # Create temporary copies (more memory waste)
-        temp_analysis.extend([entry] * 5)
-    
-    return {
-        "message": "Analytics Dashboard",
-        "total_customers_tracked": len(user_analytics_data),
-        "total_transactions_analyzed": len(request_analytics),
-        "memory_objects_created": len(temp_analysis),
-        "status": "growing_rapidly",
-        "note": "Analytics data is accumulating for better fraud detection!"
-    }
-
 
 @app.post("/customers/create")
 def create_customer(customer: Customer):
